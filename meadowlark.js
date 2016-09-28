@@ -1,16 +1,9 @@
 'use strict';
 
-const express = require('express');
+const express = require('express'),
+      fortune = require('./lib/fortune');
 
 let app = express();
-
-const fortunes = [
-  "Победи свои страхи, или они победят тебя.",
-  "Рекам нужны истоки.",
-  "Не бойся неведомого.",
-  "Тебя ждет приятный сюрприз.",
-  "Будь проще везде, где только можно.",
-];
 
 // Установка механизма представления handlebars
 const handlebars = require('express-handlebars')
@@ -26,8 +19,7 @@ app.get('/', (req, res) => {
   res.render('home');
 });
 app.get('/about', (req, res) => {
-  let randomFortune = fortunes[Math.floor(Math.random() * fortunes.length)];
-  res.render('about', { fortune: randomFortune });
+  res.render('about', { fortune: fortune.getFortune() });
 });
 
 // пользовательская страница 404
