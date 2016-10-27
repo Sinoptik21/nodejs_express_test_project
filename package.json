@@ -19,5 +19,14 @@
   "dependencies": {
     "express": "^4.14.0",
     "express-handlebars": "^3.0.0"
+  },
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "gulp": "github:gulpjs/gulp#4.0",
+    "gulp-jshint": "^2.0.2",
+    "gulp-mocha": "^3.0.1",
+    "jshint": "^2.9.4",
+    "mocha": "^3.1.2",
+    "zombie": "^4.3.0"
   }
 }
