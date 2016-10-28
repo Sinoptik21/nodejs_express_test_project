@@ -5,6 +5,8 @@ const express = require('express'),
 
 let app = express();
 
+app.disable('x-powered-by'); // отключаем заголовок X-Powered-By
+
 // Установка механизма представления handlebars
 const handlebars = require('express-handlebars').create({ 
   defaultLayout:'main',
