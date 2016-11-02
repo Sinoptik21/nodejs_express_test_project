@@ -1,7 +1,9 @@
 'use strict';
 
 const express = require('express'),
-      fortune = require('./lib/fortune');
+      fortune = require('./lib/fortune'),
+      formidable = require('formidable'),
+      jqupload = require('jquery-file-upload-middleware');
 
 let app = express();
 
@@ -26,7 +28,9 @@ app.set('view engine', 'hbs');
 
 app.set('port', process.env.PORT || 3003);
 
-app.use(express.static(__dirname + '/public'));
+app.use(express.static(`${__dirname}/public`));
+
+app.use(require('body-parser').urlencoded({ extended: true }));
 
 app.use((req, res, next) => {
   res.locals.showTests = app.get('env') !== 'production' && req.query.test === '1';
@@ -66,6 +70,15 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/upload', (req, res, next) => {
+  let now = Date.now();
+  jqupload.fileHandler({
+    uploadDir: () => `${__dirname}/public/uploads/${now}`,
+    uploadUrl: () => `/uploads/${now}`,
+  })(req, res, next);
+});
+
+
 app.get('/', (req, res) => {
   res.render('home');
 });
@@ -100,6 +113,48 @@ app.get('/data/nursery-rhyme', (req, res) => {
     noun: 'щетка',
   });
 });
+
+app.get('/thank-you', (req, res) => {
+  res.render('thank-you');
+});
+app.get('/newsletter', (req, res) => {
+  // мы изучим CSRF позже... сейчас мы лишь заполняем фиктивное значение
+  res.render('newsletter', { csrf: 'CSRF token goes here' });
+});
+/*app.post('/process', (req, res) => {
+  console.log(`Form (from querystring): ${req.query.form}`);
+  console.log(`CSRF token (from hidden form field): ${req.body._csrf}`);
+  console.log(`Name (from visible form field): ${req.body.name}`);
+  console.log(`Email (from visible form field): ${req.body.email}`);
+  res.redirect(303, '/thank-you');
+});*/
+app.post('/process', (req, res) => {
+  if (req.xhr || req.accepts('json,html') === 'json') {
+    // если здесь есть ошибка, то мы должны отправить { error: 'описание ошибки' }
+    res.send({ success: true });
+  }
+  else {
+    // если бы была ошибка, нам нужно было бы перенаправлять на страницу ошибки
+    res.redirect(303, '/thank-you' );
+  }
+});
+
+app.get('/contest/vacation-photo', (req, res) => {
+  var now = new Date();
+  res.render('contest/vacation-photo', { year: now.getFullYear(), month: now.getMonth() });
+});
+app.post('/contest/vacation-photo/:year/:month', (req, res) => {
+  var form = new formidable.IncomingForm();
+  form.parse(req, (err, fields, files) => {
+    if (err) return res.redirect(303, '/error');
+    console.log('received fields:');
+    console.log(fields);
+    console.log('received files:');
+    console.log(files);
+    res.redirect(303, '/thank-you');
+  });
+});
+
 
 // пользовательская страница 404
 // next должен присутствовать обязательно, чтобы Express распознал обработчик ошибок
