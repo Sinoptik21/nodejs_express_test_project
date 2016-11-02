@@ -1,2 +1,6 @@
 # игнорировать установленные npm пакеты:
 node_modules
+# игнорировать загруженные через bower библиотеки
+/public/vendor
+!/public/vendor/*.css
+!/public/vendor/*.js

@@ -2,8 +2,7 @@
 
 const express = require('express'),
       fortune = require('./lib/fortune'),
-      formidable = require('formidable'),
-      jqupload = require('jquery-file-upload-middleware');
+      formidable = require('formidable');
 
 let app = express();
 
@@ -70,15 +69,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/upload', (req, res, next) => {
-  let now = Date.now();
-  jqupload.fileHandler({
-    uploadDir: () => `${__dirname}/public/uploads/${now}`,
-    uploadUrl: () => `/uploads/${now}`,
-  })(req, res, next);
-});
-
-
 app.get('/', (req, res) => {
   res.render('home');
 });
@@ -113,21 +103,13 @@ app.get('/data/nursery-rhyme', (req, res) => {
     noun: 'щетка',
   });
 });
-
 app.get('/thank-you', (req, res) => {
   res.render('thank-you');
 });
 app.get('/newsletter', (req, res) => {
-  // мы изучим CSRF позже... сейчас мы лишь заполняем фиктивное значение
+  // вместо CSRF пока что используем простой текст
   res.render('newsletter', { csrf: 'CSRF token goes here' });
 });
-/*app.post('/process', (req, res) => {
-  console.log(`Form (from querystring): ${req.query.form}`);
-  console.log(`CSRF token (from hidden form field): ${req.body._csrf}`);
-  console.log(`Name (from visible form field): ${req.body.name}`);
-  console.log(`Email (from visible form field): ${req.body.email}`);
-  res.redirect(303, '/thank-you');
-});*/
 app.post('/process', (req, res) => {
   if (req.xhr || req.accepts('json,html') === 'json') {
     // если здесь есть ошибка, то мы должны отправить { error: 'описание ошибки' }
@@ -138,7 +120,6 @@ app.post('/process', (req, res) => {
     res.redirect(303, '/thank-you' );
   }
 });
-
 app.get('/contest/vacation-photo', (req, res) => {
   var now = new Date();
   res.render('contest/vacation-photo', { year: now.getFullYear(), month: now.getMonth() });
@@ -154,7 +135,6 @@ app.post('/contest/vacation-photo/:year/:month', (req, res) => {
     res.redirect(303, '/thank-you');
   });
 });
-
 
 // пользовательская страница 404
 // next должен присутствовать обязательно, чтобы Express распознал обработчик ошибок
