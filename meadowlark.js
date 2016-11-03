@@ -2,7 +2,8 @@
 
 const express = require('express'),
       fortune = require('./lib/fortune'),
-      formidable = require('formidable');
+      formidable = require('formidable'),
+      credentials = require('./credentials');
 
 let app = express();
 
@@ -30,6 +31,12 @@ app.set('port', process.env.PORT || 3003);
 app.use(express.static(`${__dirname}/public`));
 
 app.use(require('body-parser').urlencoded({ extended: true }));
+app.use(require('cookie-parser')(credentials.cookieSecret));
+app.use(require('express-session')({
+  resave: false,
+  saveUninitialized: false,
+  secret: credentials.cookieSecret,
+}));
 
 app.use((req, res, next) => {
   res.locals.showTests = app.get('env') !== 'production' && req.query.test === '1';
@@ -66,6 +73,13 @@ let getWeatherData = () => {
 app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
+  next();
+});
+
+app.use((req, res, next) => {
+  // Если имеется экстренное сообщение, переместим его в контекст, а затем удалим
+  res.locals.flash = req.session.flash;
+  delete req.session.flash;
   next();
 });
 
@@ -110,16 +124,49 @@ app.get('/newsletter', (req, res) => {
   // вместо CSRF пока что используем простой текст
   res.render('newsletter', { csrf: 'CSRF token goes here' });
 });
-app.post('/process', (req, res) => {
-  if (req.xhr || req.accepts('json,html') === 'json') {
-    // если здесь есть ошибка, то мы должны отправить { error: 'описание ошибки' }
-    res.send({ success: true });
+
+function NewsletterSignup(){}
+NewsletterSignup.prototype.save = (cb) => {
+  cb();
+};
+
+const VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
+app.post('/newsletter', (req, res) => {
+  let name = req.body.name || '', email = req.body.email || '';
+  // проверка ввода
+  if (!email.match(VALID_EMAIL_REGEX)) {
+    if (req.xhr) return res.json({ error: 'Invalid name email address.' });
+    req.session.flash = {
+      type: 'danger',
+      intro: 'Ошибка!',
+      message: 'Адрес электронной почты введен неверно.',
+    };
+    return res.redirect(303, '/newsletter/archive');
   }
-  else {
-    // если бы была ошибка, нам нужно было бы перенаправлять на страницу ошибки
-    res.redirect(303, '/thank-you' );
-  }
+  new NewsletterSignup({ name: name, email: email }).save((err) => {
+    if (err) {
+      if (req.xhr) return res.json({ error: 'Database error.' });
+      req.session.flash = {
+        type: 'danger',
+        intro: 'Ошибка базы данных!',
+        message: 'Ошибка базы данных; повторите запрос немного позже.',
+      };
+      return res.redirect(303, '/newsletter/archive');
+    }
+    if(req.xhr) return res.json({ success: true });
+    req.session.flash = {
+      type: 'success',
+      intro: 'Спасибо!',
+      message: 'Вы подписаны на нашу рассылку.',
+    };
+    return res.redirect(303, '/newsletter/archive');
+  });
 });
+app.get('/newsletter/archive', (req, res) => {
+  res.render('newsletter/archive');
+});
+
 app.get('/contest/vacation-photo', (req, res) => {
   var now = new Date();
   res.render('contest/vacation-photo', { year: now.getFullYear(), month: now.getMonth() });

@@ -4,3 +4,5 @@ node_modules
 /public/vendor
 !/public/vendor/*.css
 !/public/vendor/*.js
+# игнорируем файл credentials.js
+/credentials.js
