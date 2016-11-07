@@ -5,7 +5,7 @@ const express = require('express'),
       formidable = require('formidable'),
       credentials = require('./credentials');
 
-let app = express();
+const app = express();
 
 app.disable('x-powered-by'); // отключаем заголовок X-Powered-By
 
@@ -43,7 +43,7 @@ app.use((req, res, next) => {
   next();
 });
 
-let getWeatherData = () => {
+const getWeatherData = () => {
   return {
     locations: [
       {
@@ -92,12 +92,6 @@ app.get('/about', (req, res) => {
     pageTestScript: '/qa/tests-about.js'
   });
 });
-app.get('/tours/hood-river', (req, res) => {
-  res.render('tours/hood-river');
-});
-app.get('/tours/oregon-coast', (req, res) => {
-  res.render('tours/oregon-coast');
-});
 app.get('/tours/request-group-rate', (req, res) => {
   res.render('tours/request-group-rate');
 });
@@ -125,9 +119,75 @@ app.get('/newsletter', (req, res) => {
   res.render('newsletter', { csrf: 'CSRF token goes here' });
 });
 
-function NewsletterSignup(){}
+function NewsletterSignup(){};
 NewsletterSignup.prototype.save = (cb) => {
   cb();
+};
+
+// простейшая БД
+const Product = () => {}
+Product.find = (conditions, fields, options, cb) => {
+  if (typeof conditions === 'function') {
+    cb = conditions;
+    conditions = {};
+    fields = null;
+    options = {};
+  } else if (typeof fields === 'function') {
+    cb = fields;
+    fields = null;
+    options = {};
+  } else if (typeof options === 'function') {
+    cb = options;
+    options = {};
+  }
+  const products = [
+    {
+      name: 'Тур по реке Худ',
+      slug: 'hood-river',
+      category: 'tour',
+      maximumGuests: 15,
+      sku: 723,
+    },
+    {
+      name: 'Тур по берегу реки Орегон',
+      slug: 'oregon-coast',
+      category: 'tour',
+      maximumGuests: 10,
+      sku: 446,
+    },
+    {
+      name: 'Скалолазание в Бенде',
+      slug: 'rock-climbing/bend',
+      category: 'adventure',
+      requiresWaiver: true,
+      maximumGuests: 4,
+      sku: 944,
+    }
+  ];
+  cb(null, products.filter((p) => {
+    if (conditions.category && p.category !== conditions.category) return false;
+    if (conditions.slug && p.slug !== conditions.slug) return false;
+    if (isFinite(conditions.sku) && p.sku !== Number(conditions.sku)) return false;
+    return true;
+  }));
+};
+Product.findOne = (conditions, fields, options, cb) => {
+  if (typeof conditions === 'function') {
+    cb = conditions;
+    conditions = {};
+    fields = null;
+    options = {};
+  } else if (typeof fields === 'function') {
+    cb = fields;
+    fields = null;
+    options = {};
+  } else if (typeof options === 'function') {
+    cb = options;
+    options = {};
+  }
+  Product.find(conditions, fields, options, (err, products) => {
+    cb(err, products && products.length?products[0]:null);
+  });
 };
 
 const VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
@@ -181,6 +241,43 @@ app.post('/contest/vacation-photo/:year/:month', (req, res) => {
     console.log(files);
     res.redirect(303, '/thank-you');
   });
+});
+
+app.get('/tours/:tour', (req, res, next) => {
+  Product.findOne({ category: 'tour', slug: req.params.tour }, (err, tour) => {
+    if (err) return next(err);
+    if (!tour) return next();
+    res.render('tour', { tour: tour });
+  });
+});
+app.get('/adventures/:subcat/:name', (req, res, next) => {
+  Product.findOne({ category: 'adventure', slug: req.params.subcat + '/' + req.params.name  }, (err, adventure) => {
+    if (err) return next(err);
+    if (!adventure) return next();
+    res.render('adventure', { adventure: adventure });
+  });
+});
+
+const cartValidation = require('./lib/cartValidation.js');
+
+app.use(cartValidation.checkWaivers);
+app.use(cartValidation.checkGuestCounts);
+
+app.post('/cart/add', (req, res, next) => {
+  const cart = req.session.cart || (req.session.cart = []);
+  Product.findOne({ sku: req.body.sku }, (err, product) => {
+    if (err) return next(err);
+    if (!product) return next(new Error('Unknown product SKU: ' + req.body.sku));
+    cart.push({
+      product: product,
+      guests: req.body.guests || 0,
+    });
+    res.redirect(303, '/cart');
+  });
+});
+app.get('/cart', (req, res) => {
+  const cart = req.session.cart || (req.session.cart = []);
+  res.render('cart', { cart: cart });
 });
 
 // пользовательская страница 404
