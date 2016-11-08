@@ -3,7 +3,8 @@
 const express = require('express'),
       fortune = require('./lib/fortune'),
       formidable = require('formidable'),
-      credentials = require('./credentials');
+      credentials = require('./credentials'),
+      emailService = require('./lib/email')(credentials);
 
 const app = express();
 
@@ -69,7 +70,7 @@ const getWeatherData = () => {
       },
     ],
   };
-}
+};
 app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
@@ -119,13 +120,13 @@ app.get('/newsletter', (req, res) => {
   res.render('newsletter', { csrf: 'CSRF token goes here' });
 });
 
-function NewsletterSignup(){};
+function NewsletterSignup(){}
 NewsletterSignup.prototype.save = (cb) => {
   cb();
 };
 
 // простейшая БД
-const Product = () => {}
+const Product = () => {};
 Product.find = (conditions, fields, options, cb) => {
   if (typeof conditions === 'function') {
     cb = conditions;
@@ -278,6 +279,36 @@ app.post('/cart/add', (req, res, next) => {
 app.get('/cart', (req, res) => {
   const cart = req.session.cart || (req.session.cart = []);
   res.render('cart', { cart: cart });
+});
+
+app.get('/cart/checkout', (req, res, next) => {
+	const cart = req.session.cart;
+	if (!cart) next();
+	res.render('cart-checkout');
+});
+app.get('/cart/thank-you', (req, res) => {
+	res.render('cart-thank-you', { cart: req.session.cart });
+});
+app.get('/email/cart/thank-you', (req, res) => {
+	res.render('email/cart-thank-you', { cart: req.session.cart, layout: null });
+});
+app.post('/cart/checkout', (req, res, next) => {
+  const cart = req.session.cart;
+  if (!cart) next(new Error('Корзина не существует.'));
+  const name = req.body.name || '', email = req.body.email || '';
+  // Проверка вводимых данных
+  if (!email.match(VALID_EMAIL_REGEX)) return res.next(new Error('Некорректный адрес электронной почты.'));
+  // Присваиваем случайный идентификатор корзины; При обычных условиях мы бы использовали здесь идентификатор из БД
+  cart.number = Math.random().toString().replace(/^0\.0*/, '');
+  cart.billing = {
+    name: name,
+    email: email,
+  };
+  res.render('email/cart-thank-you', { layout: null, cart: cart }, (err, html) => {
+    if (err) console.log('ошибка в шаблоне письма');
+    emailService.send(cart.billing.email, 'Спасибо за заказ поездки в Meadowlark', html);
+  });
+  res.render('cart-thank-you', { cart: cart });
 });
 
 // пользовательская страница 404
