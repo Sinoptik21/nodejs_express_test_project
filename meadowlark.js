@@ -25,12 +25,67 @@ const handlebars = require('express-handlebars').create({
 app.engine('hbs', handlebars.engine);
 app.set('view engine', 'hbs');
 
-//app.set('view cache'); // включение кэширования представлений
-
 app.set('port', process.env.PORT || 3003);
 
-app.use(express.static(`${__dirname}/public`));
+//app.set('view cache'); // включение кэширования представлений
+//app.enable('trust proxy'); // сообщаем express'у об использовании proxy и что ему можно доверять
 
+app.use((req, res, next) => {
+  // создаем домен для этого запроса
+  const domain = require('domain').create();
+  // обрабатываем ошибки на этом домене
+  domain.on('error', (err) => {
+    console.error('ПЕРЕХВАЧЕНА ОШИБКА ДОМЕНА\n', err.stack);
+    try {
+      // Отказобезопасный останов через 5 секунд
+      setTimeout(() => {
+        console.error(' Отказобезопасный останов.');
+        process.exit(1);
+      }, 5000);
+
+      // Отключение от кластера
+      const worker = require('cluster').worker;
+      if (worker) worker.disconnect();
+
+      // Прекращение принятия новых запросов
+      server.close();
+
+      try {
+        // Попытка использовать маршрутизацию ошибок Express
+        next(err);
+      }
+      catch(err) {
+        // Если маршрутизация ошибок Express не сработала, пробуем выдать текстовый ответ Node
+        console.error('Сбой механизма обработки ошибок Express .\n', err.stack);
+        res.statusCode = 500;
+        res.setHeader('content-type', 'text/plain');
+        res.end('Ошибка сервера.');
+      }
+    }
+    catch(err) {
+      console.error('Не могу отправить ответ 500.\n', err.stack);
+    }
+  });
+  // Добавляем объекты запроса и ответа в домен
+  domain.add(req);
+  domain.add(res);
+
+  // Выполняем оставшуюся часть цепочки запроса в домене
+  domain.run(next);
+});
+
+switch (app.get('env')) {
+  case 'development':
+    // сжатое многоцветное журналирование для разработки
+    app.use(require('morgan')('dev'));
+    break;
+  case 'production':
+    // модуль 'express-logger' поддерживает ежедневное чередование файлов журналов
+    app.use(require('express-logger')({ path: __dirname + '/log/requests.log' }));
+    break;
+}
+
+app.use(express.static(`${__dirname}/public`));
 app.use(require('body-parser').urlencoded({ extended: true }));
 app.use(require('cookie-parser')(credentials.cookieSecret));
 app.use(require('express-session')({
@@ -40,9 +95,22 @@ app.use(require('express-session')({
 }));
 
 app.use((req, res, next) => {
+  // Если имеется экстренное сообщение, переместим его в контекст, а затем удалим
+  res.locals.flash = req.session.flash;
+  delete req.session.flash;
+  next();
+});
+
+app.use((req, res, next) => {
   res.locals.showTests = app.get('env') !== 'production' && req.query.test === '1';
   next();
 });
+
+// app.use((req,res,next) => {
+//   const cluster = require('cluster');
+//   if (cluster.isWorker) console.log(`Исполнитель ${cluster.worker.id} получил запрос`);
+//   next();
+// });
 
 const getWeatherData = () => {
   return {
@@ -74,13 +142,6 @@ const getWeatherData = () => {
 app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
-  next();
-});
-
-app.use((req, res, next) => {
-  // Если имеется экстренное сообщение, переместим его в контекст, а затем удалим
-  res.locals.flash = req.session.flash;
-  delete req.session.flash;
   next();
 });
 
@@ -280,7 +341,6 @@ app.get('/cart', (req, res) => {
   const cart = req.session.cart || (req.session.cart = []);
   res.render('cart', { cart: cart });
 });
-
 app.get('/cart/checkout', (req, res, next) => {
 	const cart = req.session.cart;
 	if (!cart) next();
@@ -311,6 +371,13 @@ app.post('/cart/checkout', (req, res, next) => {
   res.render('cart-thank-you', { cart: cart });
 });
 
+app.get('/fail', (req, res) => {
+  throw new Error('Нееееет!');
+});
+app.get('/epic-fail', (req, res) => process.nextTick(() => {
+  throw new Error('Бабах!');
+}));
+
 // пользовательская страница 404
 // next должен присутствовать обязательно, чтобы Express распознал обработчик ошибок
 app.use((req, res, next) => {
@@ -321,11 +388,12 @@ app.use((req, res, next) => {
 // пользовательская страница 500
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.type('text/plain');
-  res.status(500);
-  res.render('500');
+  res.status(500).render('500');
 });
 
-app.listen(
-  app.get('port'), () => console.log(`Express запущен на http://localhost:${app.get('port')}; нажмите Ctrl+C для завершения.`)
-);
+let server;
+const startServer = () => {
+  server = app.listen(app.get('port'), () => console.log(`Express запущен в режиме ${app.get('env')} на http://localhost:${app.get('port')}; нажмите Ctrl+C для завершения.`));
+};
+if (require.main === module) startServer(); // Приложение запускается непосредственно; запускаем сервер приложения
+else module.exports = startServer; // Приложение импортируется как модуль посредством "require": экспортируем функцию для создания сервера
