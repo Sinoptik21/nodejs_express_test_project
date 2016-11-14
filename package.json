@@ -25,8 +25,10 @@
     "express-session": "^1.14.2",
     "formidable": "^1.0.17",
     "loadtest": "^2.2.0",
+    "mongoose": "^4.6.7",
     "morgan": "^1.7.0",
-    "nodemailer": "^2.6.4"
+    "nodemailer": "^2.6.4",
+    "session-mongoose": "^0.5.2"
   },
   "devDependencies": {
     "chai": "^3.5.0",

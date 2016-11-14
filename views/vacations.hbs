@@ -1,0 +1,15 @@
+<h1>Отпускные туры</h1>
+{{#each vacations}}
+  <div class="vacation">
+    <h3>{{name}}</h3>
+    <p>{{description}}</p>
+    {{#if inSeason}}
+      <span class="price">{{price}}</span>
+      <a href="/cart/add?sku={{sku}}" class="btn btn-default">Buy Now!</a>
+    {{else}}
+      <span class="outOfSeason">К сожалению, в настоящий момент не сезон для этого тура.
+      {{! Страница "сообщите мне, когда наступит сезон для этого тура" станет нашей следующей задачей. }}
+      <a href="/notify-me-when-in-season?sku={{sku}}">Сообщите мне, когда наступит сезон для этого тура.</a>
+    {{/if}}
+  </div>
+{{/each}}

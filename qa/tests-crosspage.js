@@ -10,7 +10,7 @@ suite('Межстраничные тесты', () => {
     browser = new Browser();
   });
   test('запрос расценок для групп со страницы туров по реке Худ должен заполнять поле реферера', (done) => {
-    let referrer = 'http://localhost:3003/tours/hood-river';
+    let referrer = 'http://localhost:3003/vacation/hood-river-day-trip';
     browser.visit(referrer, () => {
       browser.clickLink('.requestGroupRate', () => {
         //assert(browser.field('referrer').value === referrer); // не работает в этой версии Zombie
@@ -20,7 +20,7 @@ suite('Межстраничные тесты', () => {
     });
   });
   test('запрос расценок для групп со страницы туров пансионата "Орегон Коуст" должен заполнять поле реферера', (done) => {
-    let referrer = 'http://localhost:3003/tours/oregon-coast';
+    let referrer = 'http://localhost:3003/vacation/oregon-coast-getaway';
     browser.visit(referrer, () => {
       browser.clickLink('.requestGroupRate', () => {
         //assert(browser.field('referrer').value === referrer); // не работает в этой версии Zombie
@@ -30,7 +30,7 @@ suite('Межстраничные тесты', () => {
     });
   });
   test('посещение страницы "Запрос цены для групп" напрямую должен приводить к пустому полю реферера', (done) => {
-    browser.visit('http://localhost:3003/tours/request-group-rate', () => {
+    browser.visit('http://localhost:3003/request-group-rate', () => {
       assert(browser.field('referrer').value === '');
       done();
     });

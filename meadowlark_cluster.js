@@ -5,7 +5,7 @@ const cluster = require('cluster');
 const startWorker = () => {
   const worker = cluster.fork();
   console.log(`КЛАСТЕР: Исполнитель ${worker.id} запущен`);
-}
+};
 
 if (cluster.isMaster) {
   require('os').cpus().forEach(() => {

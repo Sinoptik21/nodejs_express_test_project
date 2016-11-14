@@ -1,10 +1,16 @@
 'use strict';
 
 const express = require('express'),
-      fortune = require('./lib/fortune'),
       formidable = require('formidable'),
+      fs = require('fs'),
+      mongoose = require('mongoose'),
+      MongoSessionStore = require('session-mongoose')(require('connect')),
+      fortune = require('./lib/fortune'),
       credentials = require('./credentials'),
-      emailService = require('./lib/email')(credentials);
+      emailService = require('./lib/email')(credentials),
+      Vacation = require('./models/vacation.js'),
+      VacationInSeasonListener = require ('./models/vacationInSeasonListener.js'),
+      cartValidation = require('./lib/cartValidation.js');
 
 const app = express();
 
@@ -74,25 +80,84 @@ app.use((req, res, next) => {
   domain.run(next);
 });
 
-switch (app.get('env')) {
-  case 'development':
-    // сжатое многоцветное журналирование для разработки
-    app.use(require('morgan')('dev'));
-    break;
-  case 'production':
-    // модуль 'express-logger' поддерживает ежедневное чередование файлов журналов
-    app.use(require('express-logger')({ path: __dirname + '/log/requests.log' }));
-    break;
-}
+const sessionStore = new MongoSessionStore({ url: credentials.mongo[app.get('env')].connectionString });
 
-app.use(express.static(`${__dirname}/public`));
-app.use(require('body-parser').urlencoded({ extended: true }));
 app.use(require('cookie-parser')(credentials.cookieSecret));
 app.use(require('express-session')({
   resave: false,
   saveUninitialized: false,
   secret: credentials.cookieSecret,
+  store: sessionStore,
 }));
+app.use(express.static(`${__dirname}/public`));
+app.use(require('body-parser').urlencoded({ extended: true }));
+
+const opts = {
+  server: {
+    socketOptions: { keepAlive: 1 }
+  }
+};
+switch (app.get('env')) {
+  case 'development':
+    // сжатое многоцветное журналирование для разработки
+    app.use(require('morgan')('dev'));
+    mongoose.connect(credentials.mongo.development.connectionString, opts);
+    break;
+  case 'production':
+    // модуль 'express-logger' поддерживает ежедневное чередование файлов журналов
+    app.use(require('express-logger')({ path: __dirname + '/log/requests.log' }));
+    mongoose.connect(credentials.mongo.production.connectionString, opts);
+    break;
+  default:
+    throw new Error(`Неизвестная среда выполнения: ${app.get('env')}`);
+}
+
+Vacation.find((err, vacations) => {
+  if (err) return console.error(err);
+  if (vacations.length) return;
+
+  new Vacation({
+    name: 'Однодневный тур по реке Худ',
+    slug: 'hood-river-day-trip',
+    category: 'Однодневный тур',
+    sku: 'HR199',
+    description: 'Проведите день в плавании по реке Колумбия и насладитесь сваренным по традиционным рецептам пивом на реке Худ!',
+    priceInCents: 9995,
+    tags: ['однодневный тур', 'река худ', 'плавание', 'виндсерфинг', 'пивоварни'],
+    inSeason: true,
+    maximumGuests: 16,
+    available: true,
+    packagesSold: 0,
+  }).save();
+  new Vacation({
+    name: 'Отдых в Орегон Коуст',
+    slug: 'oregon-coast-getaway',
+    category: 'Отдых на выходных',
+    sku: 'OC39',
+    description: 'Насладитесь океанским воздухом и причудливыми прибрежными городками!',
+    priceInCents: 269995,
+    tags: ['отдых на выходных', 'орегон коуст', 'прогулки по пляжу'],
+    inSeason: false,
+    maximumGuests: 8,
+    available: true,
+    packagesSold: 0,
+  }).save();
+  new Vacation({
+    name: 'Скалолазание в Бенде',
+    slug: 'rock-climbing-in-bend',
+    category: 'Приключение',
+    sku: 'B99',
+    description: 'Пощекочите себе нервы горным восхождением на пустынной возвышенности.',
+    priceInCents: 289995,
+    tags: ['отдых на выходных', 'бенд', 'пустынная возвышенность', 'скалолазание'],
+    inSeason: true,
+    requiresWaiver: true,
+    maximumGuests: 4,
+    available: false,
+    packagesSold: 0,
+    notes: 'Гид по данному туру в настоящий момент восстанавливается после лыжной травмы.',
+  }).save();
+});
 
 app.use((req, res, next) => {
   // Если имеется экстренное сообщение, переместим его в контекст, а затем удалим
@@ -139,6 +204,7 @@ const getWeatherData = () => {
     ],
   };
 };
+
 app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
@@ -154,8 +220,8 @@ app.get('/about', (req, res) => {
     pageTestScript: '/qa/tests-about.js'
   });
 });
-app.get('/tours/request-group-rate', (req, res) => {
-  res.render('tours/request-group-rate');
+app.get('/request-group-rate', (req, res) => {
+  res.render('request-group-rate');
 });
 // проверка работы секций
 app.get('/jquery-test', (req, res) => {
@@ -184,72 +250,6 @@ app.get('/newsletter', (req, res) => {
 function NewsletterSignup(){}
 NewsletterSignup.prototype.save = (cb) => {
   cb();
-};
-
-// простейшая БД
-const Product = () => {};
-Product.find = (conditions, fields, options, cb) => {
-  if (typeof conditions === 'function') {
-    cb = conditions;
-    conditions = {};
-    fields = null;
-    options = {};
-  } else if (typeof fields === 'function') {
-    cb = fields;
-    fields = null;
-    options = {};
-  } else if (typeof options === 'function') {
-    cb = options;
-    options = {};
-  }
-  const products = [
-    {
-      name: 'Тур по реке Худ',
-      slug: 'hood-river',
-      category: 'tour',
-      maximumGuests: 15,
-      sku: 723,
-    },
-    {
-      name: 'Тур по берегу реки Орегон',
-      slug: 'oregon-coast',
-      category: 'tour',
-      maximumGuests: 10,
-      sku: 446,
-    },
-    {
-      name: 'Скалолазание в Бенде',
-      slug: 'rock-climbing/bend',
-      category: 'adventure',
-      requiresWaiver: true,
-      maximumGuests: 4,
-      sku: 944,
-    }
-  ];
-  cb(null, products.filter((p) => {
-    if (conditions.category && p.category !== conditions.category) return false;
-    if (conditions.slug && p.slug !== conditions.slug) return false;
-    if (isFinite(conditions.sku) && p.sku !== Number(conditions.sku)) return false;
-    return true;
-  }));
-};
-Product.findOne = (conditions, fields, options, cb) => {
-  if (typeof conditions === 'function') {
-    cb = conditions;
-    conditions = {};
-    fields = null;
-    options = {};
-  } else if (typeof fields === 'function') {
-    cb = fields;
-    fields = null;
-    options = {};
-  } else if (typeof options === 'function') {
-    cb = options;
-    options = {};
-  }
-  Product.find(conditions, fields, options, (err, products) => {
-    cb(err, products && products.length?products[0]:null);
-  });
 };
 
 const VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
@@ -293,64 +293,152 @@ app.get('/contest/vacation-photo', (req, res) => {
   var now = new Date();
   res.render('contest/vacation-photo', { year: now.getFullYear(), month: now.getMonth() });
 });
+
+// Проверяем, существует ли каталог
+const dataDir = `${__dirname}/data`;
+const vacationPhotoDir = `${dataDir}/vacation-photo`;
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+if (!fs.existsSync(vacationPhotoDir)) fs.mkdirSync(vacationPhotoDir);
+
+const saveContestEntry = (contestName, email, year, month, photoPath) => {
+  // TODO... это будет добавлено позднее
+};
+
 app.post('/contest/vacation-photo/:year/:month', (req, res) => {
-  var form = new formidable.IncomingForm();
+  const form = new formidable.IncomingForm();
   form.parse(req, (err, fields, files) => {
-    if (err) return res.redirect(303, '/error');
-    console.log('received fields:');
-    console.log(fields);
-    console.log('received files:');
-    console.log(files);
-    res.redirect(303, '/thank-you');
+    if (err) {
+      res.session.flash = {
+        type: 'danger',
+        intro: 'Упс!',
+        message: 'Во время обработки отправленной Вами формы произошла ошибка. Пожалуйста, попробуйте еще раз.',
+      };
+      return res.redirect(303, '/contest/vacation-photo');
+    }
+    const photo = files.photo;
+    const dir = `${vacationPhotoDir}/${Date.now()}`;
+    const path = `${dir}/${photo.name}`;
+    fs.mkdirSync(dir);
+    fs.renameSync(photo.path, `${dir}/${photo.name}`);
+    saveContestEntry('vacation-photo', fields.email, req.params.year, req.params.month, path);
+    req.session.flash = {
+      type: 'success',
+      intro: 'Удачи!',
+      message: 'Вы стали участником конкурса.',
+    };
+    return res.redirect(303, '/contest/vacation-photo/entries');
   });
 });
 
-app.get('/tours/:tour', (req, res, next) => {
-  Product.findOne({ category: 'tour', slug: req.params.tour }, (err, tour) => {
-    if (err) return next(err);
-    if (!tour) return next();
-    res.render('tour', { tour: tour });
-  });
-});
-app.get('/adventures/:subcat/:name', (req, res, next) => {
-  Product.findOne({ category: 'adventure', slug: req.params.subcat + '/' + req.params.name  }, (err, adventure) => {
-    if (err) return next(err);
-    if (!adventure) return next();
-    res.render('adventure', { adventure: adventure });
-  });
+app.get('/contest/vacation-photo/entries', (req, res) => {
+	res.render('contest/vacation-photo/entries');
 });
 
-const cartValidation = require('./lib/cartValidation.js');
+app.get('/vacation/:vacation', (req, res, next) => {
+	Vacation.findOne({ slug: req.params.vacation }, (err, vacation) => {
+		if (err) return next(err);
+		if (!vacation) return next();
+		res.render('vacation', { vacation: vacation });
+	});
+});
+
+const convertFromUSD = (value, currency) => {
+  switch(currency) {
+    case 'USD': return value * 1;
+    case 'GBP': return value * 0.6;
+    case 'BTC': return value * 0.0023707918444761;
+    default: return NaN;
+  }
+};
+
+app.get('/vacations', (req, res) => {
+  Vacation.find({ available: true }, (err, vacations) => {
+    const currency = req.session.currency || 'USD';
+    const context = {
+      currency: currency,
+      vacations: vacations.map((vacation) => {
+        return {
+          sku: vacation.sku,
+          name: vacation.name,
+          description: vacation.description,
+          inSeason: vacation.inSeason,
+          price: convertFromUSD(vacation.priceInCents/100, currency),
+          qty: vacation.qty,
+        };
+      })
+    };
+    switch(currency){
+    	case 'USD': context.currencyUSD = 'selected'; break;
+      case 'GBP': context.currencyGBP = 'selected'; break;
+      case 'BTC': context.currencyBTC = 'selected'; break;
+    }
+    res.render('vacations', context);
+  });
+});
+app.post('/vacations', (req, res) => {
+  Vacation.findOne({ sku: req.body.purchaseSku }, (err, vacation) => {
+    if (err || !vacation) {
+      req.session.flash = {
+        type: 'warning',
+        intro: 'Упс!',
+        message: 'Что-то пошло не так; пожалуйста, <a href="/contact">свяэитесь с нами</a>.',
+      };
+      return res.redirect(303, '/vacations');
+    }
+    vacation.packagesSold++;
+    vacation.save();
+    req.session.flash = {
+      type: 'success',
+      intro: 'Спасибо!',
+      message: 'Ваша заявка принята.',
+    };
+    res.redirect(303, '/vacations');
+  });
+});
 
 app.use(cartValidation.checkWaivers);
 app.use(cartValidation.checkGuestCounts);
 
+app.get('/cart/add', (req, res, next) => {
+	const cart = req.session.cart || (req.session.cart = { items: [] });
+	Vacation.findOne({ sku: req.query.sku }, (err, vacation) => {
+		if (err) return next(err);
+		if (!vacation) return next(new Error(`Неизвестный артикул: ${req.query.sku}`));
+		cart.items.push({
+			vacation: vacation,
+			guests: req.body.guests || 1,
+		});
+		res.redirect(303, '/cart');
+	});
+});
 app.post('/cart/add', (req, res, next) => {
-  const cart = req.session.cart || (req.session.cart = []);
-  Product.findOne({ sku: req.body.sku }, (err, product) => {
+  const cart = req.session.cart || (req.session.cart =  { items: [] });
+  Vacation.findOne({ sku: req.body.sku }, (err, vacation) => {
     if (err) return next(err);
-    if (!product) return next(new Error('Unknown product SKU: ' + req.body.sku));
-    cart.push({
-      product: product,
-      guests: req.body.guests || 0,
+    if (!vacation) return next(new Error(`Неизвестный артикул: ${req.body.sku}`));
+    cart.items.push({
+      vacation: vacation,
+      guests: req.body.guests || 1,
     });
     res.redirect(303, '/cart');
   });
 });
-app.get('/cart', (req, res) => {
-  const cart = req.session.cart || (req.session.cart = []);
+
+app.get('/cart', (req, res, next) => {
+  const cart = req.session.cart;
+  if (!cart) next();
   res.render('cart', { cart: cart });
 });
 app.get('/cart/checkout', (req, res, next) => {
-	const cart = req.session.cart;
-	if (!cart) next();
-	res.render('cart-checkout');
+  const cart = req.session.cart;
+  if (!cart) next();
+  res.render('cart-checkout');
 });
 app.get('/cart/thank-you', (req, res) => {
-	res.render('cart-thank-you', { cart: req.session.cart });
+  res.render('cart-thank-you', { cart: req.session.cart });
 });
 app.get('/email/cart/thank-you', (req, res) => {
-	res.render('email/cart-thank-you', { cart: req.session.cart, layout: null });
+  res.render('email/cart-thank-you', { cart: req.session.cart, layout: null });
 });
 app.post('/cart/checkout', (req, res, next) => {
   const cart = req.session.cart;
@@ -369,6 +457,41 @@ app.post('/cart/checkout', (req, res, next) => {
     emailService.send(cart.billing.email, 'Спасибо за заказ поездки в Meadowlark', html);
   });
   res.render('cart-thank-you', { cart: cart });
+});
+
+app.get('/notify-me-when-in-season', (req, res) => {
+  res.render('notify-me-when-in-season', { sku: req.query.sku });
+});
+app.post('/notify-me-when-in-season', (req, res) => {
+  VacationInSeasonListener.update(
+    { email: req.body.email },
+    { $push: { skus: req.body.sku } },
+    { upsert: true },
+    (err) => {
+      if (err) {
+        console.error(err.stack);
+        req.session.flash = {
+          type: 'danger',
+          intro: 'Упс!',
+          message: 'При обработке вашего запроса ' +
+          'произошла ошибка.',
+        };
+        return res.redirect(303, '/vacations');
+      }
+      req.session.flash = {
+        type: 'success',
+        intro: 'Спасибо!',
+        message: 'Вы будете оповещены, когда наступит ' +
+        'сезон для этого тура.',
+      };
+      return res.redirect(303, '/vacations');
+    }
+  );
+});
+
+app.get('/set-currency/:currency', (req,res) => {
+  req.session.currency = req.params.currency;
+  return res.redirect(303, '/vacations');
 });
 
 app.get('/fail', (req, res) => {

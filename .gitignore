@@ -6,3 +6,4 @@ node_modules
 !/public/vendor/*.js
 # игнорируем файл credentials.js
 /credentials.js
+/data/*
