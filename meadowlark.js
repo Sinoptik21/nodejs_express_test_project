@@ -1,16 +1,11 @@
 'use strict';
 
 const express = require('express'),
-      formidable = require('formidable'),
       fs = require('fs'),
       mongoose = require('mongoose'),
       MongoSessionStore = require('session-mongoose')(require('connect')),
-      fortune = require('./lib/fortune'),
       credentials = require('./credentials'),
-      emailService = require('./lib/email')(credentials),
-      Vacation = require('./models/vacation.js'),
-      VacationInSeasonListener = require ('./models/vacationInSeasonListener.js'),
-      cartValidation = require('./lib/cartValidation.js');
+      Vacation = require('./models/vacation.js');
 
 const app = express();
 
@@ -211,295 +206,34 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/', (req, res) => {
-  res.render('home');
+const admin = express.Router();
+app.use(require('vhost')('admin.*', admin));
+// создаем маршруты для "admin"; это можно разместить в любом месте.
+admin.get('/', (req, res) => {
+  res.render('admin/home');
 });
-app.get('/about', (req, res) => {
-  res.render('about', {
-    fortune: fortune.getFortune(),
-    pageTestScript: '/qa/tests-about.js'
-  });
-});
-app.get('/request-group-rate', (req, res) => {
-  res.render('request-group-rate');
-});
-// проверка работы секций
-app.get('/jquery-test', (req, res) => {
-  res.render('jquery-test');
-});
-// пример использования Handlebars на стороне клиента
-app.get('/nursery-rhyme', (req, res) => {
-  res.render('nursery-rhyme');
-});
-app.get('/data/nursery-rhyme', (req, res) => {
-  res.json({
-    animal: 'бельчонок',
-    bodyPart: 'хвост',
-    adjective: 'пушистый',
-    noun: 'щетка',
-  });
-});
-app.get('/thank-you', (req, res) => {
-  res.render('thank-you');
-});
-app.get('/newsletter', (req, res) => {
-  // вместо CSRF пока что используем простой текст
-  res.render('newsletter', { csrf: 'CSRF token goes here' });
+admin.get('/users', (req, res) => {
+  res.render('admin/users');
 });
 
-function NewsletterSignup(){}
-NewsletterSignup.prototype.save = (cb) => {
-  cb();
-};
+// добавляем роуты
+require('./routes.js')(app);
 
-const VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+// добавляем поддержку автопредставлений
+let autoViews = {};
 
-app.post('/newsletter', (req, res) => {
-  let name = req.body.name || '', email = req.body.email || '';
-  // проверка ввода
-  if (!email.match(VALID_EMAIL_REGEX)) {
-    if (req.xhr) return res.json({ error: 'Invalid name email address.' });
-    req.session.flash = {
-      type: 'danger',
-      intro: 'Ошибка!',
-      message: 'Адрес электронной почты введен неверно.',
-    };
-    return res.redirect(303, '/newsletter/archive');
+app.use((req,res,next) => {
+  const path = req.path.toLowerCase();
+  // проверяем кэш, если что-то есть, загружаем представление
+  if (autoViews[path]) return res.render(autoViews[path]);
+  // если ничего нет, проверяем все .hbs файлы и подгружаем соответствующий
+  if (fs.existsSync(`${__dirname}/views${path}.hbs`)){
+    autoViews[path] = path.replace(/^\//, '');
+    return res.render(autoViews[path]);
   }
-  new NewsletterSignup({ name: name, email: email }).save((err) => {
-    if (err) {
-      if (req.xhr) return res.json({ error: 'Database error.' });
-      req.session.flash = {
-        type: 'danger',
-        intro: 'Ошибка базы данных!',
-        message: 'Ошибка базы данных; повторите запрос немного позже.',
-      };
-      return res.redirect(303, '/newsletter/archive');
-    }
-    if(req.xhr) return res.json({ success: true });
-    req.session.flash = {
-      type: 'success',
-      intro: 'Спасибо!',
-      message: 'Вы подписаны на нашу рассылку.',
-    };
-    return res.redirect(303, '/newsletter/archive');
-  });
+  // представление не найдено, переходим на обработчик 404 ошибки
+  next();
 });
-app.get('/newsletter/archive', (req, res) => {
-  res.render('newsletter/archive');
-});
-
-app.get('/contest/vacation-photo', (req, res) => {
-  var now = new Date();
-  res.render('contest/vacation-photo', { year: now.getFullYear(), month: now.getMonth() });
-});
-
-// Проверяем, существует ли каталог
-const dataDir = `${__dirname}/data`;
-const vacationPhotoDir = `${dataDir}/vacation-photo`;
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
-if (!fs.existsSync(vacationPhotoDir)) fs.mkdirSync(vacationPhotoDir);
-
-const saveContestEntry = (contestName, email, year, month, photoPath) => {
-  // TODO... это будет добавлено позднее
-};
-
-app.post('/contest/vacation-photo/:year/:month', (req, res) => {
-  const form = new formidable.IncomingForm();
-  form.parse(req, (err, fields, files) => {
-    if (err) {
-      res.session.flash = {
-        type: 'danger',
-        intro: 'Упс!',
-        message: 'Во время обработки отправленной Вами формы произошла ошибка. Пожалуйста, попробуйте еще раз.',
-      };
-      return res.redirect(303, '/contest/vacation-photo');
-    }
-    const photo = files.photo;
-    const dir = `${vacationPhotoDir}/${Date.now()}`;
-    const path = `${dir}/${photo.name}`;
-    fs.mkdirSync(dir);
-    fs.renameSync(photo.path, `${dir}/${photo.name}`);
-    saveContestEntry('vacation-photo', fields.email, req.params.year, req.params.month, path);
-    req.session.flash = {
-      type: 'success',
-      intro: 'Удачи!',
-      message: 'Вы стали участником конкурса.',
-    };
-    return res.redirect(303, '/contest/vacation-photo/entries');
-  });
-});
-
-app.get('/contest/vacation-photo/entries', (req, res) => {
-	res.render('contest/vacation-photo/entries');
-});
-
-app.get('/vacation/:vacation', (req, res, next) => {
-	Vacation.findOne({ slug: req.params.vacation }, (err, vacation) => {
-		if (err) return next(err);
-		if (!vacation) return next();
-		res.render('vacation', { vacation: vacation });
-	});
-});
-
-const convertFromUSD = (value, currency) => {
-  switch(currency) {
-    case 'USD': return value * 1;
-    case 'GBP': return value * 0.6;
-    case 'BTC': return value * 0.0023707918444761;
-    default: return NaN;
-  }
-};
-
-app.get('/vacations', (req, res) => {
-  Vacation.find({ available: true }, (err, vacations) => {
-    const currency = req.session.currency || 'USD';
-    const context = {
-      currency: currency,
-      vacations: vacations.map((vacation) => {
-        return {
-          sku: vacation.sku,
-          name: vacation.name,
-          description: vacation.description,
-          inSeason: vacation.inSeason,
-          price: convertFromUSD(vacation.priceInCents/100, currency),
-          qty: vacation.qty,
-        };
-      })
-    };
-    switch(currency){
-    	case 'USD': context.currencyUSD = 'selected'; break;
-      case 'GBP': context.currencyGBP = 'selected'; break;
-      case 'BTC': context.currencyBTC = 'selected'; break;
-    }
-    res.render('vacations', context);
-  });
-});
-app.post('/vacations', (req, res) => {
-  Vacation.findOne({ sku: req.body.purchaseSku }, (err, vacation) => {
-    if (err || !vacation) {
-      req.session.flash = {
-        type: 'warning',
-        intro: 'Упс!',
-        message: 'Что-то пошло не так; пожалуйста, <a href="/contact">свяэитесь с нами</a>.',
-      };
-      return res.redirect(303, '/vacations');
-    }
-    vacation.packagesSold++;
-    vacation.save();
-    req.session.flash = {
-      type: 'success',
-      intro: 'Спасибо!',
-      message: 'Ваша заявка принята.',
-    };
-    res.redirect(303, '/vacations');
-  });
-});
-
-app.use(cartValidation.checkWaivers);
-app.use(cartValidation.checkGuestCounts);
-
-app.get('/cart/add', (req, res, next) => {
-	const cart = req.session.cart || (req.session.cart = { items: [] });
-	Vacation.findOne({ sku: req.query.sku }, (err, vacation) => {
-		if (err) return next(err);
-		if (!vacation) return next(new Error(`Неизвестный артикул: ${req.query.sku}`));
-		cart.items.push({
-			vacation: vacation,
-			guests: req.body.guests || 1,
-		});
-		res.redirect(303, '/cart');
-	});
-});
-app.post('/cart/add', (req, res, next) => {
-  const cart = req.session.cart || (req.session.cart =  { items: [] });
-  Vacation.findOne({ sku: req.body.sku }, (err, vacation) => {
-    if (err) return next(err);
-    if (!vacation) return next(new Error(`Неизвестный артикул: ${req.body.sku}`));
-    cart.items.push({
-      vacation: vacation,
-      guests: req.body.guests || 1,
-    });
-    res.redirect(303, '/cart');
-  });
-});
-
-app.get('/cart', (req, res, next) => {
-  const cart = req.session.cart;
-  if (!cart) next();
-  res.render('cart', { cart: cart });
-});
-app.get('/cart/checkout', (req, res, next) => {
-  const cart = req.session.cart;
-  if (!cart) next();
-  res.render('cart-checkout');
-});
-app.get('/cart/thank-you', (req, res) => {
-  res.render('cart-thank-you', { cart: req.session.cart });
-});
-app.get('/email/cart/thank-you', (req, res) => {
-  res.render('email/cart-thank-you', { cart: req.session.cart, layout: null });
-});
-app.post('/cart/checkout', (req, res, next) => {
-  const cart = req.session.cart;
-  if (!cart) next(new Error('Корзина не существует.'));
-  const name = req.body.name || '', email = req.body.email || '';
-  // Проверка вводимых данных
-  if (!email.match(VALID_EMAIL_REGEX)) return res.next(new Error('Некорректный адрес электронной почты.'));
-  // Присваиваем случайный идентификатор корзины; При обычных условиях мы бы использовали здесь идентификатор из БД
-  cart.number = Math.random().toString().replace(/^0\.0*/, '');
-  cart.billing = {
-    name: name,
-    email: email,
-  };
-  res.render('email/cart-thank-you', { layout: null, cart: cart }, (err, html) => {
-    if (err) console.log('ошибка в шаблоне письма');
-    emailService.send(cart.billing.email, 'Спасибо за заказ поездки в Meadowlark', html);
-  });
-  res.render('cart-thank-you', { cart: cart });
-});
-
-app.get('/notify-me-when-in-season', (req, res) => {
-  res.render('notify-me-when-in-season', { sku: req.query.sku });
-});
-app.post('/notify-me-when-in-season', (req, res) => {
-  VacationInSeasonListener.update(
-    { email: req.body.email },
-    { $push: { skus: req.body.sku } },
-    { upsert: true },
-    (err) => {
-      if (err) {
-        console.error(err.stack);
-        req.session.flash = {
-          type: 'danger',
-          intro: 'Упс!',
-          message: 'При обработке вашего запроса ' +
-          'произошла ошибка.',
-        };
-        return res.redirect(303, '/vacations');
-      }
-      req.session.flash = {
-        type: 'success',
-        intro: 'Спасибо!',
-        message: 'Вы будете оповещены, когда наступит ' +
-        'сезон для этого тура.',
-      };
-      return res.redirect(303, '/vacations');
-    }
-  );
-});
-
-app.get('/set-currency/:currency', (req,res) => {
-  req.session.currency = req.params.currency;
-  return res.redirect(303, '/vacations');
-});
-
-app.get('/fail', (req, res) => {
-  throw new Error('Нееееет!');
-});
-app.get('/epic-fail', (req, res) => process.nextTick(() => {
-  throw new Error('Бабах!');
-}));
 
 // пользовательская страница 404
 // next должен присутствовать обязательно, чтобы Express распознал обработчик ошибок

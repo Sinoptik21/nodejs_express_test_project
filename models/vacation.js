@@ -17,8 +17,6 @@ const vacationSchema = mongoose.Schema({
   notes: String,
   packagesSold: Number,
 });
-vacationSchema.methods.getDisplayPrice = function() {
-  return `$${(this.priceInCents / 100).toFixed(2)}`;
-};
+vacationSchema.methods.getDisplayPrice = () => `$${(this.priceInCents / 100).toFixed(2)}`;
 const Vacation = mongoose.model('Vacation', vacationSchema);
 module.exports = Vacation;
