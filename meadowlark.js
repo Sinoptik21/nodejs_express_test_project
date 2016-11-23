@@ -2,14 +2,20 @@
 
 const express = require('express'),
       fs = require('fs'),
+      vhost = require('vhost'),
       mongoose = require('mongoose'),
       MongoSessionStore = require('session-mongoose')(require('connect')),
+      Vacation = require('./models/vacation.js'),
+      Attraction = require('./models/attraction.js'),
       credentials = require('./credentials'),
-      Vacation = require('./models/vacation.js');
+      emailService = require('./lib/email.js')(credentials), // ???
+      Rest = require('connect-rest');
 
 const app = express();
 
 app.disable('x-powered-by'); // отключаем заголовок X-Powered-By
+
+app.use('/api', require('cors')());
 
 // Установка механизма представления handlebars
 const handlebars = require('express-handlebars').create({
@@ -100,7 +106,7 @@ switch (app.get('env')) {
     break;
   case 'production':
     // модуль 'express-logger' поддерживает ежедневное чередование файлов журналов
-    app.use(require('express-logger')({ path: __dirname + '/log/requests.log' }));
+    app.use(require('express-logger')({ path: `${__dirname}/log/requests.log` }));
     mongoose.connect(credentials.mongo.production.connectionString, opts);
     break;
   default:
@@ -218,6 +224,69 @@ admin.get('/users', (req, res) => {
 
 // добавляем роуты
 require('./routes.js')(app);
+
+// конфигурация API
+const apiOptions = {
+  context: '',
+  domain: require('domain').create(),
+};
+const rest = Rest.create(apiOptions);
+
+// API
+rest.get('/attractions', (req, content, cb) => {
+  Attraction.find({ approved: true }, (err, attractions) => {
+    if (err) return cb({ error: 'Internal error.' });
+    cb(null, attractions.map((a) => {
+      return {
+        name: a.name,
+        description: a.description,
+        location: a.location,
+      };
+    }));
+  });
+});
+
+rest.post('/attraction', (req, content, cb) => {
+  const a = new Attraction({
+    name: req.body.name,
+    description: req.body.description,
+    location: { lat: req.body.lat, lng: req.body.lng },
+    history: {
+      event: 'created',
+      email: req.body.email,
+      date: new Date(),
+    },
+    approved: false,
+  });
+  a.save((err, a) => {
+    if (err) return cb({ error: 'Unable to add attraction.' });
+    cb(null, { id: a._id });
+  });
+});
+
+rest.get('/attraction/:id', (req, content, cb) => {
+  Attraction.findById(req.params.id, (err, a) => {
+    if (err) return cb({ error: 'Unable to retrieve attraction.' });
+    cb(null, {
+      name: a.name,
+      description: a.description,
+      location: a.location,
+    });
+  });
+});
+
+apiOptions.domain.on('error', (err) => {
+  console.log('API domain error.\n', err.stack);
+  setTimeout(() => {
+    console.log('Server shutting down after API domain error.');
+    process.exit(1);
+  }, 5000);
+  server.close();
+  const worker = require('cluster').worker;
+  if (worker) worker.disconnect();
+});
+
+app.use(vhost('api.*', rest.processRequest()));
 
 // добавляем поддержку автопредставлений
 let autoViews = {};
