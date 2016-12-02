@@ -9,29 +9,52 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   	<title>Meadowlark Travel</title>
   	{{#if showTests}}
-  		<link rel="stylesheet" href="/vendor/mocha.css">
+  		<link rel="stylesheet" href="{{static '/vendor/mocha.css'}}">
   	{{/if}}
     {{{_sections.head}}}
     <meta name="description" content="">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <link rel="stylesheet" href="/vendor/bootstrap/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{static '/vendor/bootstrap/dist/css/bootstrap.min.css'}}">
     <style>
       body {
         padding-top: 50px;
         padding-bottom: 20px;
       }
     </style>
-    <link rel="stylesheet" href="/vendor/bootstrap/dist/css/bootstrap-theme.min.css">
-    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="{{static '/vendor/bootstrap/dist/css/bootstrap-theme.min.css'}}">
+    {{#each _bundles.css}}
+			<link rel="stylesheet" href="{{static .}}">
+		{{/each}}
 
-    <script src="/vendor/modernizr/src/Modernizr.js"></script>
+    <!--<link rel="stylesheet" href="{{static '/css/meadowlark.min.css'}}">-->
+
+    <script src="{{static '/vendor/modernizr/src/Modernizr.js'}}"></script>
+
   </head>
   <body>
     <!--[if lt IE 7]>
       <p class="browsehappy">Вы используете <strong>старую версию</strong> браузера. Пожалуйста <a href="http://browsehappy.com/">обновите ваш браузер</a>.</p>
     <![endif]-->
-  	<header><img src="/img/logo.png" alt="Логотип Meadowlark Travel"></header>
+  	<header>
+      <div class="row">
+				<div class="col-sm-4">
+					<img src="{{logoImage}}" alt="Логотип Meadowlark Travel">
+				</div>
+				<div class="col-sm-2 pull-right">
+					{{! Ниже происходит частичное дублирование кода }}
+					{{#if cartItems}}
+						<a href="/cart">
+              <img class="cartIcon" src="{{static '/img/shop/cart_full.png'}}" alt="Корзина содержит {{cartItems}} позиций">
+            </a>
+					{{else}}
+						<a href="/cart">
+              <img class="cartIcon" src="{{static '/img/shop/cart_empty.png'}}" alt="Корзина пуста">
+            </a>
+					{{/if}}
+				</div>
+			</div>
+    </header>
 
     <div class="container">
       {{#if flash}}
@@ -48,29 +71,53 @@
       <footer>
         <p>&copy; Meadowlark Travel 2016</p>
       </footer>
-      </div> <!-- /container --> 
+    </div> <!-- /container -->
 
     <script src="//code.jquery.com/jquery-2.1.1.min.js"></script>
     <script>window.jQuery || document.write('<script src="/vendor/jquery/dist/jquery.min.js"><\/script>')</script>
+    {{#each _bundles.js.head}}
+      <script src="{{static .}}"></script>
+    {{/each}}
+    <script>
+			var IMG_CART_EMPTY = '{{static '/img/shop/cart_empty.png'}}';
+			var IMG_CART_FULL = '{{static '/img/shop/cart_full.png'}}';
+			var cart = (function() {
+				var items = Array({{cartItems}});
+				return {
+					items: items,
+					isEmpty: function() {
+						return !items.length;
+					},
+					addItem: function(id) {
+						items.push(id);
+						$(document).trigger('meadowlark_cart_changed');
+					}
+				};
+			})();
+			// изменение иконки корзины при добавлении в нее позиций
+			$(document).on('meadowlark_cart_changed', function(){
+				$('header img.cartIcon').attr('src', cart.isEmpty() ? IMG_CART_EMPTY : IMG_CART_FULL );
+			});
+		</script>
     {{{_sections.jquery}}}
 
     {{#if showTests}}
       <div id="mocha"></div>
-      <script src="/vendor/mocha.js"></script>
-      <script src="/vendor/chai.js"></script>
+      <script src="{{static '/vendor/mocha.js'}}"></script>
+      <script src="{{static '/vendor/chai.js'}}"></script>
       <script>
         mocha.ui('tdd');
         var assert = chai.assert;
       </script>
-      <script src="/qa/tests-global.js"></script>
+      <script src="{{static '/qa/tests-global.js'}}"></script>
       {{#if pageTestScript}}
         <script src="{{pageTestScript}}"></script>
       {{/if}}
       <script>mocha.run();</script>
     {{/if}}
 
-    <script src="/vendor/bootstrap/dist/js/bootstrap.min.js"></script>
-    <script src="/js/main.js"></script>
+    <script src="{{static '/vendor/bootstrap/dist/js/bootstrap.min.js'}}"></script>
+    <script src="{{static '/js/main.js'}}"></script>
 
   </body>
 </html>

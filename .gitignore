@@ -7,3 +7,8 @@ node_modules
 # игнорируем файл credentials.js
 /credentials.js
 /data/*
+# игнорируем css
+/public/css
+/public/js.min
+/public/meadowlark-*
+/public/rev-manifest.json

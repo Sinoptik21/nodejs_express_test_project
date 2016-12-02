@@ -9,7 +9,8 @@ const express = require('express'),
       Attraction = require('./models/attraction.js'),
       credentials = require('./credentials'),
       emailService = require('./lib/email.js')(credentials), // ???
-      Rest = require('connect-rest');
+      Rest = require('connect-rest'),
+      Static = require('./lib/static.js').map;
 
 const app = express();
 
@@ -26,11 +27,16 @@ const handlebars = require('express-handlebars').create({
       if (!this._sections) this._sections = {};
       this._sections[name] = options.fn(this);
       return null;
-    }
+    },
+    static: (name) => Static(name)
   }
 });
 app.engine('hbs', handlebars.engine);
 app.set('view engine', 'hbs');
+
+// установка группирования css/js
+const bundler = require('connect-bundle')(require('./config.js'));
+app.use(bundler);
 
 app.set('port', process.env.PORT || 3003);
 
@@ -210,6 +216,20 @@ app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
   next();
+});
+
+// middleware для обработки логотипа (пасхальное яйцо)
+app.use((req, res, next) => {
+	const now = new Date();
+	res.locals.logoImage = now.getMonth() === 11 && now.getDate() === 19 ? Static('/img/logo_bud_clark.png') : Static('/img/logo.png');
+	next();
+});
+
+// middleware для работы корзины в шапке
+app.use((req, res, next) => {
+	const cart = req.session.cart;
+	res.locals.cartItems = cart && cart.items ? cart.items.length : 0;
+	next();
 });
 
 const admin = express.Router();

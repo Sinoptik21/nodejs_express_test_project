@@ -18,6 +18,7 @@
   "homepage": "https://github.com/Sinoptik21/nodejs_express_test_project#readme",
   "dependencies": {
     "body-parser": "^1.15.2",
+    "connect-bundle": "0.0.5-beta",
     "connect-rest": "^2.10.7",
     "cookie-parser": "^1.4.3",
     "cors": "^2.8.1",
@@ -38,8 +39,16 @@
   "devDependencies": {
     "chai": "^3.5.0",
     "gulp": "github:gulpjs/gulp#4.0",
+    "gulp-concat": "^2.6.1",
+    "gulp-cssmin": "^0.1.7",
     "gulp-jshint": "^2.0.2",
     "gulp-mocha": "^3.0.1",
+    "gulp-patternlint": "^0.1.4",
+    "gulp-rename": "^1.2.2",
+    "gulp-rev": "^7.1.2",
+    "gulp-rev-replace": "^0.4.3",
+    "gulp-stylus": "^2.6.0",
+    "gulp-uglify": "^2.0.0",
     "jshint": "^2.9.4",
     "mocha": "^3.1.2",
     "zombie": "^4.3.0"
