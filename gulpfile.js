@@ -42,7 +42,7 @@ gulp.task('stylus', () => {
 
       // Способ 1
       // define: {
-      //   static: (file) => `url(${Static(file.val)})`
+      //   static: (file) => `url("${Static(file.val)}")`
       // },
 
       // Способ 2
