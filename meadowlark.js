@@ -1,6 +1,7 @@
 'use strict';
 
-const express = require('express'),
+const https = require('https'),
+      express = require('express'),
       fs = require('fs'),
       vhost = require('vhost'),
       mongoose = require('mongoose'),
@@ -41,7 +42,7 @@ app.use(bundler);
 app.set('port', process.env.PORT || 3003);
 
 //app.set('view cache'); // включение кэширования представлений
-//app.enable('trust proxy'); // сообщаем express'у об использовании proxy и что ему можно доверять
+//app.enable('trust proxy'); // сообщаем express'у об использовании proxy (например, nginx), и что ему можно доверять
 
 app.use((req, res, next) => {
   // создаем домен для этого запроса
@@ -87,6 +88,18 @@ app.use((req, res, next) => {
   domain.run(next);
 });
 
+// логирование
+switch (app.get('env')) {
+  case 'development':
+  	// компактное цветное dev логирование
+  	app.use(require('morgan')('dev'));
+    break;
+  case 'production':
+    // модуль 'express-logger' поддерживает ежедневное логирование
+    app.use(require('express-logger')({ path: `${__dirname}/log/requests.log`}));
+    break;
+}
+
 const sessionStore = new MongoSessionStore({ url: credentials.mongo[app.get('env')].connectionString });
 
 app.use(require('cookie-parser')(credentials.cookieSecret));
@@ -98,6 +111,12 @@ app.use(require('express-session')({
 }));
 app.use(express.static(`${__dirname}/public`));
 app.use(require('body-parser').urlencoded({ extended: true }));
+
+app.use(require('csurf')());
+app.use((req, res, next) => {
+  res.locals._csrfToken = req.csrfToken();
+  next();
+});
 
 const opts = {
   server: {
@@ -308,6 +327,64 @@ apiOptions.domain.on('error', (err) => {
 
 app.use(vhost('api.*', rest.processRequest()));
 
+// аутентификация
+const auth = require('./lib/auth.js')(app, {
+  // baseUrl опционален; по умолчанию будет
+  // использоваться localhost, если вы пропустите его;
+  // имеет смысл установить его, если вы не
+  // работаете на своей локальной машине. Например,
+  // если вы используете staging-сервер,
+  // можете установить в переменной окружения BASE_URL
+  // https://staging.meadowlark.com
+	baseUrl: process.env.BASE_URL,
+	providers: credentials.authProviders,
+	successRedirect: '/account',
+	failureRedirect: '/unauthorized',
+});
+// auth.init() соединяется в промежуточном ПО Passport:
+auth.init();
+
+// теперь мы можем указать наши маршруты auth:
+auth.registerRoutes();
+
+const customerOnly = (req, res, next) => {
+	if (req.user && req.user.role === 'customer') return next();
+	// Мы хотим, чтобы при посещении страниц только покупатели знали, что требуется логин
+	res.redirect(303, '/unauthorized');
+};
+const employeeOnly = (req, res, next) => {
+	if (req.user && req.user.role === 'employee') return next();
+	// мы хотим, чтобы неуспех авторизации посещения страниц только для сотрудников был скрытым
+  // чтобы потенциальные хакеры не смогли даже узнать, что такая страница существует
+	next('route');
+};
+const allow = (roles) => {
+	return (req, res, next) => {
+		if (req.user && roles.split(',').indexOf(req.user.role)!==-1) return next();
+		res.redirect(303, '/unauthorized');
+	};
+};
+
+app.get('/unauthorized', function(req, res) {
+	res.status(403).render('unauthorized');
+});
+
+// маршруты покупателя
+app.get('/account', allow('customer,employee'), (req, res) => {
+	res.render('account', { username: req.user.name });
+});
+app.get('/account/order-history', customerOnly, (req, res) => {
+	res.render('account/order-history');
+});
+app.get('/account/email-prefs', customerOnly, (req, res) => {
+	res.render('account/email-prefs');
+});
+
+// маршруты сотрудника
+app.get('/sales', employeeOnly, (req, res) => {
+	res.render('sales');
+});
+
 // добавляем поддержку автопредставлений
 let autoViews = {};
 
@@ -339,7 +416,27 @@ app.use((err, req, res, next) => {
 
 let server;
 const startServer = () => {
-  server = app.listen(app.get('port'), () => console.log(`Express запущен в режиме ${app.get('env')} на http://localhost:${app.get('port')}; нажмите Ctrl+C для завершения.`));
+  const options = {
+    key: fs.readFileSync(`${__dirname}/ssl/meadowlark.pem`),
+    cert: fs.readFileSync(`${__dirname}/ssl/meadowlark.crt`),
+  };
+
+  const keyFile = `${__dirname}/ssl/meadowlark.pem`,
+		    certFile = `${__dirname}/ssl/meadowlark.crt`;
+	if (!fs.existsSync(keyFile) || !fs.existsSync(certFile)) {
+		console.error(`
+
+ERROR: One or both of the SSL cert or key are missing:
+  ${keyFile}
+  ${certFile}
+You can generate these files using openssl; please refer to the book for instructions.
+`);
+		process.exit(1);
+	}
+
+  server = https.createServer(options, app).listen(app.get('port'), () => {
+    console.log(`Express запущен в режиме ${app.get('env')} на порту ${app.get('port')}, используя  HTTPS; нажмите Ctrl+C для завершения.`);
+  });
 };
 if (require.main === module) startServer(); // Приложение запускается непосредственно; запускаем сервер приложения
 else module.exports = startServer; // Приложение импортируется как модуль посредством "require": экспортируем функцию для создания сервера
