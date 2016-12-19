@@ -1,8 +1,8 @@
 <h1>{{tour.name}}</h1>
 
-<form class="form-horizontal newsletterForm" role="form"action="/cart/add" method="POST">
+<form class="form-horizontal newsletterForm" role="form" action="/cart/add" method="POST">
   <input type="hidden" name="_csrf" value="{{_csrfToken}}">
-  <input type="hidden" name="sku" value="{{tour.sku}}">
+  <input type="hidden" name="sku" value="{{vacation.sku}}">
   <div class="form-group">
     <label for="fieldGuests" class="col-sm-3 control-label">Количество гостей на вашей вечеринке</label>
     <div class="col-sm-1">

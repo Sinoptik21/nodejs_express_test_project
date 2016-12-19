@@ -14,7 +14,6 @@ exports.middleware = (req, res, next) => {
 		items: cart.items.map((item) => {
 			return {
 				guests: item.guests,
-				vacation: item.vacation,
 				sku: item.sku,
 			};
 		})
@@ -29,12 +28,8 @@ exports.middleware = (req, res, next) => {
 		});
 	});
 	Q.all(promises)
-		.then(() => {
-			next();
-		})
-		.catch((err) => {
-			next(err);
-		});
+		.then(() => next())
+		.catch((err) => next(err));
 };
 
 const addToCart = (sku, guests, req, res, next) => {
@@ -44,20 +39,15 @@ const addToCart = (sku, guests, req, res, next) => {
 		if (!vacation) return next(new Error(`Неизвестный артикул: ${sku}`));
 		cart.items.push({
 			sku: sku,
-			vacation: vacation,
 			guests: guests || 1,
 		});
 		res.redirect(303, '/cart');
 	});
 };
 
-exports.addProcessGet = (req, res, next) => {
-	addToCart(req.query.sku, req.query.guests, req, res, next);
-};
+exports.addProcessGet = (req, res, next) => addToCart(req.query.sku, req.query.guests, req, res, next);
 
-exports.addProcessPost = (req, res, next) => {
-	addToCart(req.body.sku, req.body.guests, req, res, next);
-};
+exports.addProcessPost = (req, res, next) => addToCart(req.body.sku, req.body.guests, req, res, next);
 
 exports.home = (req, res, next) => {
 	res.render('cart', { cart: req.cart });
@@ -77,7 +67,7 @@ exports.emailThankYou = (req, res) => {
 	res.render('email/cart-thank-you', { cart: req.session.cart, layout: null });
 };
 
-exports.checkoutProcessPost = (req, res, next) => {
+exports.checkoutProcessPost = (req, res) => {
 	const cart = req.session.cart;
 	if (!cart) next(new Error('Корзина не существует.'));
 	const name = req.body.name || '', email = req.body.email || '';
@@ -89,7 +79,7 @@ exports.checkoutProcessPost = (req, res, next) => {
 		name: name,
 		email: email,
 	};
-  res.render('email/cart-thank-you', { layout: null, cart: cart }, (err,html) => {
+  res.render('email/cart-thank-you', { layout: null, cart: cart }, (err, html) => {
         if (err) console.error(`Ошибка в шаблоне письма: ${err.stack}`);
         emailService.send(cart.billing.email, 'Спасибо за заказ поездки в Meadowlark!', html);
     }
@@ -97,7 +87,7 @@ exports.checkoutProcessPost = (req, res, next) => {
   res.render('cart-thank-you', { cart: cart });
 };
 
-exports.setCurrency = (req,res) => {
+exports.setCurrency = (req, res) => {
   req.session.currency = req.params.currency;
   return res.redirect(303, '/vacations');
 };

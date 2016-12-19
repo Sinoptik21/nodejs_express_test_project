@@ -6,7 +6,7 @@ const _ = require('lodash');
 const smartJoin = (arr, separator) => {
   if (!separator) separator = ' ';
   return arr.filter((elt) => {
-    return elt !== undefined && elt!==null && elt.toString().trim() !== '';
+    return elt !== undefined && elt !== null && elt.toString().trim() !== '';
   }).join(separator);
 };
 

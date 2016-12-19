@@ -6,7 +6,7 @@ const loadtest = require('loadtest'),
 suite('Стрессовые тесты', () => {
   test('Домашняя страница должна обрабатывать 50 запросов в секунду', (done) => {
     const options = {
-      url: 'http://localhost:3003',
+      url: 'https://localhost:3003',
       concurrency: 4,
       maxRequests: 50,
     };

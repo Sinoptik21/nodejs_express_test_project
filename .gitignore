@@ -13,3 +13,5 @@ node_modules
 /public/meadowlark-*
 /public/rev-manifest.json
 /ssl/*
+/public/dealers.json
+/public/js/dealers-googleMapMarkers.js

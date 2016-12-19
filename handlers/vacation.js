@@ -28,6 +28,7 @@ exports.list = (req, res) => {
       vacations: vacations.map((vacation) => {
         return {
           sku: vacation.sku,
+					slug: vacation.slug,
           name: vacation.name,
           description: vacation.description,
           inSeason: vacation.inSeason,

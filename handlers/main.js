@@ -10,15 +10,11 @@ exports.about = (req, res) => {
 	res.render('about', {
 		fortune: fortune.getFortune(),
 		pageTestScript: '/qa/tests-about.js'
-	} );
+	});
 };
 
-exports.newsletter = (req, res) => {
-	// вместо CSRF пока что используем простой текст
-	res.render('newsletter', { csrf: 'CSRF token goes here' });
-};
+exports.newsletter = (req, res) => res.render('newsletter');
 
-// for now, we're mocking NewsletterSignup:
 function NewsletterSignup(){}
 NewsletterSignup.prototype.save = (cb) => {
 	cb();

@@ -1,0 +1,48 @@
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCKUcp6Uqk8HL2FTSB9wzXBMd2rd0pcUOU"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/1.3.0/handlebars.min.js"></script>
+
+<script id="dealerTemplate" type="text/x-handlebars-template">
+  \{{#each dealers}}
+  <div class="dealer">
+    <h3>\{{name}}</h3>
+    \{{address1}}<br>
+    \{{#if address2}}\{{address2}}<br>\{{/if}}
+    \{{city}}, \{{state}} \{{zip}}<br>
+    \{{#if country}}\{{country}}<br>\{{/if}}
+    \{{#if phone}}\{{phone}}<br>\{{/if}}
+    \{{#if website}}<a href="{{website}}">\{{website}}</a><br>\{{/if}}
+  </div>
+  \{{/each}}
+</script>
+
+<div class="dealers">
+  <div id="map"></div>
+  <div id="dealerList"></div>
+</div>
+
+{{#section 'jquery'}}
+  <script src="{{static '/js/dealers-googleMapMarkers.js'}}"></script>
+  <script>
+    var map;
+    var dealerTemplate = Handlebars.compile($('#dealerTemplate').html());
+    $(document).ready(function() {
+
+      // центрировать карту США, установить масштаб, чтобы показать всю страну
+      var mapOptions = {
+        center: new google.maps.LatLng(38.2562, -96.0650),
+        zoom: 4,
+      };
+
+      // инициализировать карту
+      map = new google.maps.Map( document.getElementById('map'), mapOptions );
+
+      addMarkers(map);
+
+      // получить JSON
+      $.getJSON('/dealers.json', function(dealers) {
+        // обновить список дилеров с использованием Handlebars
+        $('#dealerList').html(dealerTemplate({ dealers: dealers }));
+      });
+      });
+    </script>
+  {{/section}}

@@ -1,17 +1,24 @@
 'use strict';
 
-const https = require('https'),
+const http = require('http'),
+      https = require('https'),
       express = require('express'),
       fs = require('fs'),
       vhost = require('vhost'),
       mongoose = require('mongoose'),
       MongoSessionStore = require('session-mongoose')(require('connect')),
+      Q = require('q'),
+      Dealer = require('./models/dealer.js'),
       Vacation = require('./models/vacation.js'),
       Attraction = require('./models/attraction.js'),
       credentials = require('./credentials'),
-      emailService = require('./lib/email.js')(credentials), // ???
+      emailService = require('./lib/email.js')(credentials),
       Rest = require('connect-rest'),
-      Static = require('./lib/static.js').map;
+      Static = require('./lib/static.js').map,
+      twitter = require('./lib/twitter')({
+      	consumerKey: credentials.twitter.consumerKey,
+      	consumerSecret: credentials.twitter.consumerSecret,
+      });
 
 const app = express();
 
@@ -21,7 +28,7 @@ app.use('/api', require('cors')());
 
 // Установка механизма представления handlebars
 const handlebars = require('express-handlebars').create({
-  defaultLayout:'main',
+  defaultLayout: 'main',
   extname: '.hbs',
   helpers: {
     section: function(name, options) {
@@ -102,6 +109,7 @@ switch (app.get('env')) {
 
 const sessionStore = new MongoSessionStore({ url: credentials.mongo[app.get('env')].connectionString });
 
+app.use(require('body-parser').urlencoded({ extended: true }));
 app.use(require('cookie-parser')(credentials.cookieSecret));
 app.use(require('express-session')({
   resave: false,
@@ -109,14 +117,14 @@ app.use(require('express-session')({
   secret: credentials.cookieSecret,
   store: sessionStore,
 }));
-app.use(express.static(`${__dirname}/public`));
-app.use(require('body-parser').urlencoded({ extended: true }));
 
 app.use(require('csurf')());
 app.use((req, res, next) => {
   res.locals._csrfToken = req.csrfToken();
   next();
 });
+
+app.use(express.static(`${__dirname}/public`));
 
 const opts = {
   server: {
@@ -185,6 +193,142 @@ Vacation.find((err, vacations) => {
   }).save();
 });
 
+// инициализация дилеров
+Dealer.find({}, (err, dealers) => {
+  if (dealers.length) return;
+	new Dealer({
+		name: 'Oregon Novelties',
+		address1: '912 NW Davis St',
+		city: 'Portland',
+		state: 'OR',
+		zip: '97209',
+		country: 'US',
+		phone: '503-555-1212',
+		active: true,
+	}).save();
+	new Dealer({
+		name: 'Bruce\'s Bric-a-Brac',
+		address1: '159 Beeswax Ln',
+		city: 'Manzanita',
+		state: 'OR',
+		zip: '97209',
+		country: 'US',
+		phone: '503-555-1212',
+		active: true,
+	}).save();
+	new Dealer({
+		name: 'Aunt Beru\'s Oregon Souveniers',
+		address1: '544 NE Emerson Ave',
+		city: 'Bend',
+		state: 'OR',
+		zip: '97701',
+		country: 'US',
+		phone: '503-555-1212',
+		active: true,
+	}).save();
+	new Dealer({
+		name: 'Oregon Goodies',
+		address1: '1353 NW Beca Ave',
+		city: 'Corvallis',
+		state: 'OR',
+		zip: '97330',
+		country: 'US',
+		phone: '503-555-1212',
+		active: true,
+	}).save();
+	new Dealer({
+		name: 'Oregon Grab-n-Fly',
+		address1: '7000 NE Airport Way',
+		city: 'Portland',
+		state: 'OR',
+		zip: '97219',
+		country: 'US',
+		phone: '503-555-1212',
+		active: true,
+	}).save();
+});
+
+// геокодирование дилера
+const geocodeDealer = (dealer) => {
+  const addr = dealer.getAddress(' ');
+  if (addr === dealer.geocodedAddress) return; // уже геокодирован
+
+  if (dealerCache.geocodeCount >= dealerCache.geocodeLimit) {
+    // прошло ли 24 часа с тех пор, как мы начали геокодирование?
+    if (Date.now() > dealerCache.geocodeCount + 24 * 60 * 60 * 1000) {
+      dealerCache.geocodeBegin = Date.now();
+      dealerCache.geocodeCount = 0;
+    } else {
+      // мы не можем геокодировать это сейчас: мы достигли лимита, предусмотренного ограничениями в использовании
+      return;
+    }
+  }
+
+  const geocode = require('./lib/geocode.js');
+  geocode(addr, (err, coords) => {
+    if (err) return console.log(`Geocoding failure for ${addr}`);
+    dealer.lat = coords.lat;
+    dealer.lng = coords.lng;
+    dealer.save();
+  });
+};
+
+// оптимизация отображения дилера
+const dealersToGoogleMaps = (dealers) => {
+  var js = `function addMarkers(map){
+  var markers = [];
+  var Marker = google.maps.Marker;
+  var LatLng = google.maps.LatLng;
+`;
+  dealers.forEach((d) => {
+    let name = d.name.replace(/'/, '\\\'').replace(/\\/, '\\\\');
+    js += `markers.push(new Marker({
+  position: new LatLng(${d.lat}, ${d.lng}),
+  map: map,
+  title: '${name.replace(/'/, '\\')}',
+}));`;
+  });
+  js += '}';
+  return js;
+};
+
+// кэш дилеров
+const dealerCache = {
+  lastRefreshed: 0,
+  refreshInterval: 60 * 60 * 1000,
+  jsonUrl: '/dealers.json',
+  geocodeLimit: 2000,
+  geocodeCount: 0,
+  geocodeBegin: 0,
+};
+dealerCache.jsonFile = `${__dirname}/public${dealerCache.jsonUrl}`;
+dealerCache.refresh = (cb) => {
+  if (Date.now() > dealerCache.lastRefreshed + dealerCache.refreshInterval) {
+    //нам нужно обновить кэш
+    Dealer.find({ active: true }, (err, dealers) => {
+      if (err) return console.log(`Error fetching dealers: ${err}`);
+      // geocodeDealer ничего не будет делать если координаты не устаревшие
+      dealers.forEach(geocodeDealer);
+      // сейчас мы запишем всех дилеров в файл JSON
+      fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+
+			fs.writeFileSync(`${__dirname}/public/js/dealers-googleMapMarkers.js`, dealersToGoogleMaps(dealers));
+      // все сделано — вызываем callback-функцию
+      cb();
+    });
+  }
+};
+const refreshDealerCacheForever = () => {
+  dealerCache.refresh(() => {
+    // вызвать себя после интервала обновления
+    setTimeout(refreshDealerCacheForever, dealerCache.refreshInterval);
+  });
+};
+// создать пустой кэш, если он не существует, во избежание ошибки 404
+if (!fs.existsSync(dealerCache.jsonFile)) fs.writeFileSync(JSON.stringify([]));
+// start refreshing cache
+refreshDealerCacheForever();
+
 app.use((req, res, next) => {
   // Если имеется экстренное сообщение, переместим его в контекст, а затем удалим
   res.locals.flash = req.session.flash;
@@ -203,38 +347,89 @@ app.use((req, res, next) => {
 //   next();
 // });
 
-const getWeatherData = () => {
-  return {
+const getWeatherData = (() => {
+  // наш кэш погоды
+  const c = {
+    refreshed: 0,
+    refreshing: false,
+    updateFrequency: 360000, // 1 час
     locations: [
-      {
-        name: 'Портленд',
-        forecastUrl: 'http://www.wunderground.com/US/OR/Portland.html',
-        iconUrl: 'http://icons-ak.wxug.com/i/c/k/cloudy.gif',
-        weather: 'Сплошная облачность ',
-        temp: '54.1 F (12.3 C)',
-      },
-      {
-        name: 'Бенд',
-        forecastUrl: 'http://www.wunderground.com/US/OR/Bend.html',
-        iconUrl: 'http://icons-ak.wxug.com/i/c/k/partlycloudy.gif',
-        weather: 'Малооблачно',
-        temp: '55.0 F (12.8 C)',
-      },
-      {
-        name: 'Манзанита',
-        forecastUrl: 'http://www.wunderground.com/US/OR/Manzanita.html',
-        iconUrl: 'http://icons-ak.wxug.com/i/c/k/rain.gif',
-        weather: 'Небольшой дождь',
-        temp: '55.0 F (12.8 C)',
-      },
-    ],
+      { name: 'Portland' },
+      { name: 'Bend' },
+      { name: 'Manzanita' },
+    ]
   };
-};
+  return () => {
+    if ( !c.refreshing && Date.now() > c.refreshed + c.updateFrequency ) {
+      c.refreshing = true;
+      const promises = c.locations.map((loc) => {
+        return Q.Promise((resolve) => {
+          const url = `http://api.wunderground.com/api/${credentials.WeatherUnderground.ApiKey}/conditions/q/OR/${loc.name}.json`;
+          http.get(url, (res) => {
+            let body = '';
+            res.on('data', (chunk) => body += chunk);
+            res.on('end', () => {
+              body = JSON.parse(body);
+              loc.forecastUrl = body.current_observation.forecast_url;
+              loc.iconUrl = body.current_observation.icon_url;
+              loc.weather = body.current_observation.weather;
+              loc.temp = body.current_observation.temperature_string;
+              resolve();
+            });
+          });
+        });
+      });
+      Q.all(promises).then(() => {
+        c.refreshing = false;
+        c.refreshed = Date.now();
+      });
+    }
+    return { locations: c.locations };
+  };
+})();
+// инициализация кэша погоды
+getWeatherData();
 
 app.use((req, res, next) => {
   if (!res.locals.partials) res.locals.partials = {};
   res.locals.partials.weatherContext = getWeatherData();
   next();
+});
+
+// интеграция с twitter
+const topTweets = {
+	count: 10,
+	lastRefreshed: 0,
+	refreshInterval: 15 * 60 * 1000,
+	tweets: [],
+};
+const getTopTweets = (cb) => {
+	if (Date.now() < topTweets.lastRefreshed + topTweets.refreshInterval)
+		return setImmediate(() => cb(topTweets.tweets));
+
+	twitter.search('#путешествие', topTweets.count, (result) => {
+		const formattedTweets = [];
+		const embedOpts = { omit_script: 1 };
+		const promises = result.statuses.map((status) => {
+      return Q.Promise((resolve) => {
+    		twitter.embed(status.id_str, embedOpts, (embed) => {
+    			formattedTweets.push(embed.html);
+    			resolve();
+    		});
+      });
+		});
+		Q.all(promises).then(() => {
+			topTweets.lastRefreshed = Date.now();
+			cb(topTweets.tweets = formattedTweets);
+		});
+	});
+};
+// middleware для добавление топа твитов в конекст
+app.use((req, res, next) => {
+	getTopTweets((tweets) => {
+		res.locals.topTweets = tweets;
+		next();
+	});
 });
 
 // middleware для обработки логотипа (пасхальное яйцо)
